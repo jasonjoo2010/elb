@@ -12,7 +12,8 @@ function _M.split(str, separator, max, regex)
         local plain = not regex
         max = max or -1
 
-        local field=1 start=1
+        local field=1
+        local start=1
         local first, last = str:find(separator, start, plain)
         while first and max ~= 0 do
             record[field] = str:sub(start, first - 1)

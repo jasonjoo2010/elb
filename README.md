@@ -351,7 +351,7 @@ Transfer-Encoding: chunked
 
 ELB will read `ETCD`, `ELBNAME` and `STATSD` from environment.
 
-If etcd and elbname not set, elb will use `127.0.0.1:2379` and `ELB` as default.
+If etcd and elbname not set, elb will use `http://127.0.0.1:2379` and `ELB` as default.
 
 But if `STATSD` not set, elb will not calcuate domain status.
 
@@ -364,7 +364,7 @@ docker run -d --privileged \
   --name eru_elb_$HOSTNAME \
   --net host \
   --restart always \
-  -e "ETCD=<IP:PORT>" \
+  -e "ETCD=<http://IP:PORT>" \
   -e "ELBNAME=<ELBNAME>" \
   -e "STATSD=<IP:PORT>" \
   projecteru2/elb
