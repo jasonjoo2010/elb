@@ -11,6 +11,7 @@ ELB (Eru load balance) is based on [openresty](https://openresty.org/en/). In Er
 * update upstream dynamically
 * run by eru
 * custom strategies of network flow
+* waf support
 
 ### Storage
 
@@ -389,6 +390,23 @@ Make sure you can clone code by ssh protocol because libgit2 ask for it. So you 
 ```
 
 Now you will find elb was started.
+
+### WAF
+
+#### ENV Configuration
+
+var | default | desc
+--- | --- | ---
+WAF | true | Turn waf on
+WAF_LOG | true | Turn on attack log
+WAF_URL | true | URL filtering
+WAF_REDIRECT | false | URL redirect
+WAF_COOKIE | true | Cookie attack
+WAF_POST | true | Post attack
+WAF_URL_WHITE | true | URL white list
+WAF_CC | false | CC attack
+WAF_CC_RATE | 100/60 | CC attack rates count/seconds
+
 
 ### Warning
 

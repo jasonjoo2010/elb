@@ -1,5 +1,8 @@
 local string = require 'string'
 local cjson = require 'cjson'
+local waf = require 'waf.waf'
+
+waf.filter()
 
 local config = require 'elb.config'
 local processor = require 'elb.processor'

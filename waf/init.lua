@@ -1,36 +1,93 @@
-require 'config'
+require 'waf.config'
+local luabit = require "bit"
+
 local match = string.match
-local ngxmatch=ngx.re.match
-local unescape=ngx.unescape_uri
+local ngxmatch = ngx.re.find
+local unescape = ngx.unescape_uri
 local get_headers = ngx.req.get_headers
-local optionIsOn = function (options) return options == "on" and true or false end
-logpath = logdir 
-rulepath = RulePath
-UrlDeny = optionIsOn(UrlDeny)
-PostCheck = optionIsOn(postMatch)
-CookieCheck = optionIsOn(cookieMatch)
-WhiteCheck = optionIsOn(whiteModule)
-PathInfoFix = optionIsOn(PathInfoFix)
-attacklog = optionIsOn(attacklog)
-CCDeny = optionIsOn(CCDeny)
-Redirect=optionIsOn(Redirect)
-function getClientIp()
-        IP  = ngx.var.remote_addr 
-        if IP == nil then
-                IP  = "unknown"
-        end
-        return IP
+local ModuleEnable = function(options) return options == "true" and true or false end
+logpath = configLogDir
+rulepath = configRulePath
+UrlDeny = ModuleEnable(configUrlDeny)
+PostCheck = ModuleEnable(configPost)
+CookieCheck = ModuleEnable(cookieMatch)
+enableURLWhite = ModuleEnable(configURLWhite)
+PathInfoFix = ModuleEnable(PathInfoFix)
+attacklog = ModuleEnable(configAttackLog)
+enableCcDetect = ModuleEnable(configCcDetect)
+Redirect = ModuleEnable(configRedirect)
+ccCount = tonumber(string.match(configCcRate, '(.*)/'))
+ccSeconds = tonumber(string.match(configCcRate, '/(.*)'))
+
+local function ip2int(ip)
+    local o1, o2, o3, o4, p = ip:match("(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)/?(%d?%d?)")
+    local iplong = 2^24 * o1 + 2^16 * o2 + 2^8 * o3 + o4
+    if p == "" then
+        p = 0
+    end
+    return iplong + 0, p + 0
 end
-function write(logfile,msg)
+
+local function parseIpList(arr)
+    local ipList = {}
+    local prefixList = {}
+    if arr then
+        local prefixCount = 1
+        for _, ip in pairs(arr) do
+            local iplong, p = ip2int(ip)
+            if p > 0 then
+                local right = 32 - p
+                local prefix = luabit.lshift(luabit.rshift(iplong, right), right)
+                local mask = luabit.lshift(luabit.rshift(0xffffffff, right), right)
+                prefixList[prefix] = mask
+                prefixCount = prefixCount + 1
+            else
+                ipList[ip] = 1
+            end
+        end
+    end
+    return ipList, prefixList
+end
+
+local function ipMatch(ip, ipList, prefixList)
+    if ipList[ip] then
+        return true
+    end
+    local iplong = ip2int(ip)
+    for prefix, mask in pairs(prefixList) do
+        ngx.log(ngx.ERR, "judge: " .. ip .. " => " .. luabit.band(iplong, mask) .. " : " .. prefix)
+        if luabit.band(iplong, mask) == prefix then
+            ngx.log(ngx.ERR, "match: " .. ip)
+            return true
+        end
+    end
+    return false
+end
+
+local arrIpWhiteList = {}
+local arrIpPrefixWhiteList = {}
+local arrIpBlackList = {}
+local arrIpPrefixBlackList = {}
+arrIpWhiteList, arrIpPrefixWhiteList = parseIpList(configIpWhiteList)
+arrIpBlackList, arrIpPrefixBlackList = parseIpList(configIpBlockList)
+
+local function waf_get_client_ip()
+    local IP = ngx.var.remote_addr
+    if IP == nil then
+        IP = "unknown"
+    end
+    return IP
+end
+local function write(logfile,msg)
     local fd = io.open(logfile,"ab")
     if fd == nil then return end
     fd:write(msg)
     fd:flush()
     fd:close()
 end
-function log(method,url,data,ruletag)
+local function waf_log(method, url, data, ruletag)
     if attacklog then
-        local realIp = getClientIp()
+        local realIp = waf_get_client_ip()
         local ua = ngx.var.http_user_agent
         local servername=ngx.var.server_name
         local time=ngx.localtime()
@@ -43,26 +100,28 @@ function log(method,url,data,ruletag)
         write(filename,line)
     end
 end
-------------------------------------规则读取函数-------------------------------------------------------------------
+------------------------------------load rules-------------------------------------------------------------------
 function read_rule(var)
-    file = io.open(rulepath..'/'..var,"r")
-    if file==nil then
+    file = io.open(rulepath .. '/' .. var, "r")
+    if file == nil then
+        ngx.log(ngx.ERR, "load " .. var .. " rules failed")
         return
     end
-    t = {}
+    local t = {}
     for line in file:lines() do
-        table.insert(t,line)
+        table.insert(t, line)
     end
     file:close()
-    return(t)
+    ngx.log(ngx.INFO, var .. " rules " .. #t .. " loaded")
+    return (t)
 end
 
-urlrules=read_rule('url')
-argsrules=read_rule('args')
-uarules=read_rule('user-agent')
-wturlrules=read_rule('whiteurl')
-postrules=read_rule('post')
-ckrules=read_rule('cookie')
+urlrules = read_rule('url')
+argsrules = read_rule('args')
+uarules = read_rule('user-agent')
+wturlrules = read_rule('whiteurl')
+postrules = read_rule('post')
+ckrules = read_rule('cookie')
 
 
 function say_html()
@@ -75,12 +134,12 @@ function say_html()
 end
 
 function whiteurl()
-    if WhiteCheck then
+    if enableURLWhite then
         if wturlrules ~=nil then
             for _,rule in pairs(wturlrules) do
                 if ngxmatch(ngx.var.uri,rule,"isjo") then
-                    return true 
-                 end
+                    return true
+                end
             end
         end
     end
@@ -91,18 +150,19 @@ function fileExtCheck(ext)
     ext=string.lower(ext)
     if ext then
         for rule in pairs(items) do
-            if ngx.re.match(ext,rule,"isjo") then
-	        log('POST',ngx.var.request_uri,"-","file attack with ext "..ext)
-            say_html()
+            -- TODO test here
+            if ngxmatch(ext, rule, "isjo") then
+                waf_log('POST',ngx.var.request_uri, "-", "file attack with ext " .. ext)
+                say_html()
             end
         end
     end
     return false
 end
 function Set (list)
-  local set = {}
-  for _, l in ipairs(list) do set[l] = true end
-  return set
+    local set = {}
+    for _, l in ipairs(list) do set[l] = true end
+    return set
 end
 function args()
     for _,rule in pairs(argsrules) do
@@ -110,13 +170,13 @@ function args()
         for key, val in pairs(args) do
             if type(val)=='table' then
                 if val ~= false then
-                    data=table.concat(val, " ")
+                    data = table.concat(val, " ")
                 end
             else
-                data=val
+                data = val
             end
-            if data and type(data) ~= "boolean" and rule ~="" and ngxmatch(unescape(data),rule,"isjo") then
-                log('GET',ngx.var.request_uri,"-",rule)
+            if data and type(data) ~= "boolean" and rule ~= "" and ngxmatch(unescape(data), rule, "isjo") then
+                waf_log('GET', ngx.var.request_uri, "-", rule)
                 say_html()
                 return true
             end
@@ -129,8 +189,8 @@ end
 function url()
     if UrlDeny then
         for _,rule in pairs(urlrules) do
-            if rule ~="" and ngxmatch(ngx.var.request_uri,rule,"isjo") then
-                log('GET',ngx.var.request_uri,"-",rule)
+            if rule ~="" and ngxmatch(ngx.var.request_uri, rule, "isjo") then
+                waf_log('GET',ngx.var.request_uri,"-",rule)
                 say_html()
                 return true
             end
@@ -144,9 +204,9 @@ function ua()
     if ua ~= nil then
         for _,rule in pairs(uarules) do
             if rule ~="" and ngxmatch(ua,rule,"isjo") then
-                log('UA',ngx.var.request_uri,"-",rule)
+                waf_log('UA',ngx.var.request_uri,"-",rule)
                 say_html()
-            return true
+                return true
             end
         end
     end
@@ -155,7 +215,7 @@ end
 function body(data)
     for _,rule in pairs(postrules) do
         if rule ~="" and data~="" and ngxmatch(unescape(data),rule,"isjo") then
-            log('POST',ngx.var.request_uri,data,rule)
+            waf_log('POST',ngx.var.request_uri,data,rule)
             say_html()
             return true
         end
@@ -167,32 +227,30 @@ function cookie()
     if CookieCheck and ck then
         for _,rule in pairs(ckrules) do
             if rule ~="" and ngxmatch(ck,rule,"isjo") then
-                log('Cookie',ngx.var.request_uri,"-",rule)
+                waf_log('Cookie',ngx.var.request_uri,"-",rule)
                 say_html()
-            return true
+                return true
             end
         end
     end
     return false
 end
 
-function denycc()
-    if CCDeny then
-        local uri=ngx.var.uri
-        CCcount=tonumber(string.match(CCrate,'(.*)/'))
-        CCseconds=tonumber(string.match(CCrate,'/(.*)'))
-        local token = getClientIp()..uri
+function waf_deny_cc()
+    if enableCcDetect then
+        local uri = ngx.var.uri
+        local token = waf_get_client_ip() .. uri
         local limit = ngx.shared.limit
-        local req,_=limit:get(token)
+        local req, _ = limit:get(token)
         if req then
-            if req > CCcount then
-                 ngx.exit(503)
+            if req >= ccCount then
+                ngx.exit(503)
                 return true
             else
-                 limit:incr(token,1)
+                limit:incr(token, 1)
             end
         else
-            limit:set(token,1,CCseconds)
+            limit:set(token, 1, ccSeconds)
         end
     end
     return false
@@ -216,25 +274,89 @@ function get_boundary()
     return match(header, ";%s*boundary=([^\",;]+)")
 end
 
-function whiteip()
-    if next(ipWhitelist) ~= nil then
-        for _,ip in pairs(ipWhitelist) do
-            if getClientIp()==ip then
-                return true
+function waf_white_ip()
+    local client_ip = waf_get_client_ip()
+    return ipMatch(client_ip, arrIpWhiteList, arrIpPrefixWhiteList)
+end
+
+function waf_block_ip()
+    local client_ip = waf_get_client_ip()
+    if (ipMatch(client_ip, arrIpBlackList, arrIpPrefixBlackList)) then
+        ngx.exit(403)
+        return true
+    end
+    return false
+end
+
+function post_check()
+    if not PostCheck then return false end
+    local method = ngx.req.get_method()
+    if method == "POST" then
+        local boundary = get_boundary()
+        if boundary then
+            local len = string.len
+            local sock, err = ngx.req.socket()
+            if not sock then
+                return
+            end
+            ngx.req.init_body(128 * 1024)
+            sock:settimeout(0)
+            local content_length = nil
+            content_length = tonumber(ngx.req.get_headers()['content-length'])
+            local chunk_size = 4096
+            if content_length < chunk_size then
+                chunk_size = content_length
+            end
+            local size = 0
+            while size < content_length do
+                local data, err, partial = sock:receive(chunk_size)
+                data = data or partial
+                if not data then
+                    return
+                end
+                ngx.req.append_body(data)
+                if body(data) then
+                    return true
+                end
+                size = size + len(data)
+                local m = ngxmatch(data, [[Content-Disposition: form-data;(.+)filename="(.+)\\.(.*)"]],'ijo')
+                if m then
+                    fileExtCheck(m[3])
+                    filetranslate = true
+                else
+                    if ngxmatch(data, "Content-Disposition:",'isjo') then
+                        filetranslate = false
+                    end
+                    if filetranslate == false then
+                        if body(data) then
+                            return true
+                        end
+                    end
+                end
+                local less = content_length - size
+                if less < chunk_size then
+                    chunk_size = less
+                end
+            end
+            ngx.req.finish_body()
+        else
+            ngx.req.read_body()
+            local args = ngx.req.get_post_args()
+            if not args then
+                return
+            end
+            for key, val in pairs(args) do
+                local data = val
+                if type(val) == "table" then
+                    if type(val[1]) == "boolean" then
+                        return
+                    end
+                    data = table.concat(val, ", ")
+                end
+                if data and type(data) ~= "boolean" and body(data) then
+                    return true
+                end
             end
         end
     end
-        return false
-end
-
-function blockip()
-     if next(ipBlocklist) ~= nil then
-         for _,ip in pairs(ipBlocklist) do
-             if getClientIp()==ip then
-                 ngx.exit(403)
-                 return true
-             end
-         end
-     end
-         return false
 end
