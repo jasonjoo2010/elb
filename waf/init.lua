@@ -1,23 +1,24 @@
 require 'waf.config'
 local luabit = require "bit"
 
-local match = string.match
 local ngxmatch = ngx.re.find
 local unescape = ngx.unescape_uri
 local get_headers = ngx.req.get_headers
 local ModuleEnable = function(options) return options == "true" and true or false end
-logpath = configLogDir
-rulepath = configRulePath
-enableUrlCheck = ModuleEnable(configUrlDeny)
-enablePostCheck = ModuleEnable(configPost)
-enableCookieCheck = ModuleEnable(configCookieMatch)
-enableURLWhite = ModuleEnable(configURLWhite)
-PathInfoFix = ModuleEnable(PathInfoFix)
-attacklog = ModuleEnable(configAttackLog)
-enableCcDetect = ModuleEnable(configCcDetect)
-Redirect = ModuleEnable(configRedirect)
-ccCount = tonumber(string.match(configCcRate, '(.*)/'))
-ccSeconds = tonumber(string.match(configCcRate, '/(.*)'))
+local logpath = configLogDir
+local rulepath = configRulePath
+local enableUrlCheck = ModuleEnable(configUrlDeny)
+local enablePostCheck = ModuleEnable(configPost)
+local enableCookieCheck = ModuleEnable(configCookieMatch)
+local enableURLWhite = ModuleEnable(configURLWhite)
+local PathInfoFix = ModuleEnable(PathInfoFix)
+local attacklog = ModuleEnable(configAttackLog)
+local enableCcDetect = ModuleEnable(configCcDetect)
+local Redirect = ModuleEnable(configRedirect)
+local ccCount = tonumber(string.match(configCcRate, '(.*)/'))
+local ccSeconds = tonumber(string.match(configCcRate, '/(.*)'))
+local blackFileExts = {}
+for _, l in ipairs(configBlackFileExt) do blackFileExts[l] = true end
 
 local function ip2int(ip)
     local o1, o2, o3, o4, p = ip:match("(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)/?(%d?%d?)")
@@ -146,25 +147,21 @@ function waf_white_url()
     end
     return false
 end
-function fileExtCheck(ext)
-    local items = Set(black_fileExt)
-    ext=string.lower(ext)
+
+local function fileExtCheck(ext)
+    local items = blackFileExts
+    ext = string.lower(ext)
+    ngx.log(ngx.ERR, "ext: " .. ext)
     if ext then
         for rule in pairs(items) do
             -- TODO test here
             if ngxmatch(ext, rule, "isjo") then
-                waf_log('POST',ngx.var.request_uri, "-", "file attack with ext " .. ext)
+                waf_log('POST', ngx.var.request_uri, "-", "file attack with ext " .. ext)
                 say_html()
             end
         end
     end
     return false
-end
-
-function Set (list)
-    local set = {}
-    for _, l in ipairs(list) do set[l] = true end
-    return set
 end
 
 function waf_check_args()
@@ -213,16 +210,7 @@ function waf_check_ua()
     end
     return false
 end
-function body(data)
-    for _,rule in pairs(postrules) do
-        if rule ~="" and data~="" and ngxmatch(unescape(data),rule,"isjo") then
-            waf_log('POST',ngx.var.request_uri,data,rule)
-            say_html()
-            return true
-        end
-    end
-    return false
-end
+
 function waf_check_cookie()
     if not enableCookieCheck then return false end
     local ck = ngx.var.http_cookie
@@ -258,22 +246,38 @@ function waf_deny_cc()
     return false
 end
 
-local function get_boundary()
+local function has_boundary()
     local header = get_headers()["content-type"]
     if not header then
-        return nil
+        return false
     end
 
     if type(header) == "table" then
         header = header[1]
     end
 
-    local m = match(header, ";%s*boundary=\"([^\"]+)\"")
+    local m = ngxmatch(header, ";\\s*boundary=\"([^\"]+)\"")
     if m then
-        return m
+        return true
     end
 
-    return match(header, ";%s*boundary=([^\",;]+)")
+    m = ngxmatch(header, ";\\s*boundary=([^\",;]+)")
+    if m then
+        return true;
+    end
+    
+    return false
+end
+
+local function check_body(data)
+    for _,rule in pairs(postrules) do
+        if rule ~= "" and data ~="" and ngxmatch(unescape(data), rule, "isjo") then
+            waf_log('POST', ngx.var.request_uri, data, rule)
+            say_html()
+            return true
+        end
+    end
+    return false
 end
 
 function waf_white_ip()
@@ -294,8 +298,8 @@ function waf_check_post()
     if not enablePostCheck then return false end
     local method = ngx.req.get_method()
     if method ~= "POST" then return false end
-    local boundary = get_boundary()
-    if boundary then
+    local ret = has_boundary()
+    if ret then
         local len = string.len
         local sock, err = ngx.req.socket()
         if not sock then
@@ -317,20 +321,20 @@ function waf_check_post()
                 return
             end
             ngx.req.append_body(data)
-            if body(data) then
+            if check_body(data) then
                 return true
             end
             size = size + len(data)
-            local m = ngx.re.match(data, [[Content-Disposition: form-data;(.+)filename="(.+)\\.(.*)"]],'ijo')
+            local m = ngx.re.match(data, "Content-Disposition: form-data;(.+)filename=\"(.+)\\.([^\".]*)\"", 'ijo')
             if m then
                 fileExtCheck(m[3])
-                filetranslate = true
             else
+                local filetranslate = true
                 if ngxmatch(data, "Content-Disposition:", 'isjo') then
                     filetranslate = false
                 end
                 if filetranslate == false then
-                    if body(data) then
+                    if check_body(data) then
                         return true
                     end
                 end
@@ -355,7 +359,7 @@ function waf_check_post()
                 end
                 data = table.concat(val, ", ")
             end
-            if data and type(data) ~= "boolean" and body(data) then
+            if data and type(data) ~= "boolean" and check_body(data) then
                 return true
             end
         end

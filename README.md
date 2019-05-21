@@ -407,6 +407,27 @@ WAF_URL_WHITE | true | URL white list
 WAF_CC | false | CC attack
 WAF_CC_RATE | 100/60 | CC attack rates count/seconds
 
+#### WAF Chain
+```
+white ip
+   ||
+black ip
+   ||
+   CC
+   ||
+white url
+   ||
+   ua
+   ||
+   url
+   ||
+  args
+   ||
+ cookie
+   ||
+  post
+```
+
 
 ### Warning
 
