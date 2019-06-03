@@ -1,4 +1,4 @@
-require 'waf.config'
+local waf_config = require 'waf.config'
 local luabit = require "bit"
 
 local ngxmatch = ngx.re.find
@@ -19,51 +19,6 @@ local ccCount = tonumber(string.match(configCcRate, '(.*)/'))
 local ccSeconds = tonumber(string.match(configCcRate, '/(.*)'))
 local blackFileExts = {}
 for _, l in ipairs(configBlackFileExt) do blackFileExts[l] = true end
-
-local function ip2int(ip)
-    local o1, o2, o3, o4, p = ip:match("(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)/?(%d?%d?)")
-    local iplong = 2^24 * o1 + 2^16 * o2 + 2^8 * o3 + o4
-    if p == "" then
-        p = 0
-    end
-    return iplong + 0, p + 0
-end
-
-local function parseIpList(arr)
-    local ipList = {}
-    local prefixList = {}
-    if arr then
-        local prefixCount = 1
-        for _, ip in pairs(arr) do
-            local iplong, p = ip2int(ip)
-            if p > 0 then
-                local right = 32 - p
-                local prefix = luabit.lshift(luabit.rshift(iplong, right), right)
-                local mask = luabit.lshift(luabit.rshift(0xffffffff, right), right)
-                prefixList[prefix] = mask
-                prefixCount = prefixCount + 1
-            else
-                ipList[ip] = 1
-            end
-        end
-    end
-    return ipList, prefixList
-end
-
-local function ipMatch(ip, ipList, prefixList)
-    if ipList[ip] then
-        return true
-    end
-    local iplong = ip2int(ip)
-    for prefix, mask in pairs(prefixList) do
-        ngx.log(ngx.ERR, "judge: " .. ip .. " => " .. luabit.band(iplong, mask) .. " : " .. prefix)
-        if luabit.band(iplong, mask) == prefix then
-            ngx.log(ngx.ERR, "match: " .. ip)
-            return true
-        end
-    end
-    return false
-end
 
 local arrIpWhiteList = {}
 local arrIpPrefixWhiteList = {}
@@ -126,11 +81,11 @@ postrules = read_rule('post')
 ckrules = read_rule('cookie')
 
 
-function say_html()
+local function say_html()
     if Redirect then
         ngx.header.content_type = "text/html"
         ngx.status = ngx.HTTP_FORBIDDEN
-        ngx.say(html)
+        ngx.say(configCcHtml)
         ngx.exit(ngx.status)
     end
 end
@@ -278,11 +233,6 @@ local function check_body(data)
         end
     end
     return false
-end
-
-function waf_white_ip()
-    local client_ip = waf_get_client_ip()
-    return ipMatch(client_ip, arrIpWhiteList, arrIpPrefixWhiteList)
 end
 
 function waf_block_ip()

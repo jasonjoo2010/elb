@@ -15,7 +15,114 @@ ELB (Eru load balance) is based on [openresty](https://openresty.org/en/). In Er
 
 ### Storage
 
-ELB will load data from [etcd](https://github.com/coreos/etcd) when starting.
+ELB will load data from [etcd](https://github.com/coreos/etcd) when starting/reloading.
+
+#### Override
+Default < ENV < Storage
+
+#### Structure
+##### /{ELBNAME}/rules/{domain}
+```json
+{"rules":{"r1":{"type":"backend","args":{"servername":"default"}}},"init":"r1"}
+```
+
+##### /{ELBNAME}/upstreams/{upstream}/{addr}
+```
+weight=1 fail_timeout=10 max_fails=1
+```
+
+##### /{ELBNAME}/waf/enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/ip_white
+##### /{ELBNAME}/waf/domains/{domain}/ip_white
+```json
+["192.168.123.1", "192.168.40.1/24"]
+```
+
+##### /{ELBNAME}/waf/ip_black
+##### /{ELBNAME}/waf/domains/{domain}/ip_black
+```json
+["192.168.123.1", "192.168.40.1/24"]
+```
+
+##### /{ELBNAME}/waf/cc_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/cc_rate
+##### /{ELBNAME}/waf/domains/{domain}/cc_rate
+```
+100/60
+```
+
+##### /{ELBNAME}/waf/domains/{domain}/white_url
+```json
+["/123/"]
+```
+
+##### /{ELBNAME}/waf/domains/{domain}/white_url_pattern
+```json
+["^\\/123\\/$", "^\\/index$"]
+```
+
+##### /{ELBNAME}/waf/ua_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/ua
+##### /{ELBNAME}/waf/domains/{domain}/ua
+```json
+["(httpclient|java)"]
+```
+
+##### /{ELBNAME}/waf/url_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/url
+##### /{ELBNAME}/waf/domains/{domain}/url
+```json
+["php$", "^\\/\\.svn"]
+```
+
+##### /{ELBNAME}/waf/args_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/args
+##### /{ELBNAME}/waf/domains/{domain}/args
+```json
+["\\$\\{"]
+```
+
+##### /{ELBNAME}/waf/cookie_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/cookie
+##### /{ELBNAME}/waf/domains/{domain}/cookie
+```json
+["select.+(from|limit)"]
+```
+
+##### /{ELBNAME}/waf/post_enable
+```
+true
+```
+
+##### /{ELBNAME}/waf/post
+##### /{ELBNAME}/waf/domains/{domain}/post
+```json
+["select.+(from|limit)"]
+```
 
 ### Rule
 
@@ -432,3 +539,5 @@ white url
 ### Warning
 
 Because overlayfs with CentOS 7 has some issue, do not compile Dockerfile on CentOS 7 with overlayfs if you use early docker befor [this](https://github.com/moby/moby/issues/13108).
+
+

@@ -1,6 +1,7 @@
 local _M = {}
 
 local function get_etcd()
+    print("called")
     local etcd_url = os.getenv("ETCD_URL") or os.getenv("ETCD")
     if etcd_url == nil then
         local etcd_host = os.getenv("ETCD_HOST") or "127.0.0.1"
