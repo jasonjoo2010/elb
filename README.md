@@ -26,6 +26,11 @@ Default < ENV < Storage
 {"rules":{"r1":{"type":"backend","args":{"servername":"default"}}},"init":"r1"}
 ```
 
+##### /{ELBNAME}/alias/{alias}
+```
+domain1
+```
+
 ##### /{ELBNAME}/upstreams/{upstream}/{addr}
 ```
 weight=1 fail_timeout=10 max_fails=1
@@ -435,6 +440,32 @@ Don't forget delete upstreams data in etcd.
 
 ```
 PUT /__erulb__/dump HTTP/1.1
+Accept: application/json, */*
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
+Content-Length: 115
+Content-Type: application/json
+Host: localhost:8080
+User-Agent: HTTPie/0.9.9
+
+HTTP/1.1 200 OK
+Connection: keep-alive
+Content-Type: application/json
+Date: Mon, 25 Sep 2017 09:10:58 GMT
+Server: openresty/1.11.2.5
+Transfer-Encoding: chunked
+
+{
+    "msg": "OK"
+}
+```
+
+##### Dump API `/__erulb__/reload`
+
+`GET` this url, in-memory data will be reload from etcd.
+
+```
+GET /__erulb__/reload HTTP/1.1
 Accept: application/json, */*
 Accept-Encoding: gzip, deflate
 Connection: keep-alive

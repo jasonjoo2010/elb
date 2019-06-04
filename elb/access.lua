@@ -8,10 +8,19 @@ local config = require 'elb.config'
 local processor = require 'elb.processor'
 
 local rules = ngx.shared.rules
-local key = string.format(config.DOMAIN_KEY, config.NAME, ngx.var.http_host)
-local rule = rules:get(key)
+local domain_key = string.format(config.DOMAIN_KEY, config.NAME, ngx.var.http_host)
+local rule = rules:get(domain_key)
 if rule == nil then
-    ngx.exit(ngx.HTTP_NOT_FOUND)
+    -- try alias
+    local alias_key = string.format(config.ALIAS_DOMAIN_KEY, config.NAME, ngx.var.http_host)
+    local domain = rules:get(alias_key)
+    if domain ~= nil then
+        domain_key = string.format(config.DOMAIN_KEY, config.NAME, domain)
+        rule = rules:get(domain_key)
+    end
+    if rule == nil then
+        ngx.exit(ngx.HTTP_NOT_FOUND)
+    end
 end
 --[[
 rule: {
@@ -59,17 +68,36 @@ rule: {
 }
 -- ]]
 rule = cjson.decode(rule)
-local args, err_code = processor.process(rule)
+local typ, args, err_code = processor.process(rule)
 if err_code ~= nil then
     ngx.exit(err_code)
 end
 
-if args["servername"] ~= nil then
-    ngx.var.backend = args["servername"]
-    args["servername"] = nil
-    for k, v in pairs(args) do
-        ngx.req.set_header(k, v)
+if typ == 'response' then
+    if args['code'] ~= nil then
+        ngx.status = args['code']
+        local body = args['body']
+        args['code'] = nil
+        args['body'] = nil
+        -- headers
+        for k, v in pairs(args) do
+            ngx.header[k] = v
+        end
+        if body ~= nil then
+            ngx.say(body)
+        end
+        ngx.exit(ngx.OK)
+    else
+        ngx.exit(ngx.HTTP_NOT_FOUND)
     end
 else
-    ngx.exit(ngx.HTTP_NOT_FOUND)
+    if args["servername"] ~= nil then
+        ngx.var.backend = args["servername"]
+        args["servername"] = nil
+        for k, v in pairs(args) do
+            ngx.req.set_header(k, v)
+        end
+    else
+        ngx.exit(ngx.HTTP_NOT_FOUND)
+    end
 end

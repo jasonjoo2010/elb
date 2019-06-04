@@ -19,6 +19,7 @@ function load_data()
         return
     end
 
+    -- rules
     local rules_key = string.format(config.RULES_KEY, config.NAME)
     local data = utils.load_data(etcd_client:get(rules_key))
     local keys_valid = {}
@@ -28,11 +29,22 @@ function load_data()
         return
     end
     for i = 1, #data do
-        local value = data[i]['value']
-        local key = data[i]['key']
-        ngx.log(ngx.INFO, 'set ' .. key)
-        rules:set(key, value)
-        keys_valid[key] = 1
+        local rules_json = data[i]['value']
+        local domain_key = data[i]['key']
+        ngx.log(ngx.INFO, 'set domain ' .. domain_key)
+        rules:set(domain_key, rules_json)
+        keys_valid[domain_key] = 1
+    end
+    
+    -- alias
+    local alias_root = string.format(config.ALIAS_KEY, config.NAME)
+    data = utils.load_data(etcd_client:get(alias_root))
+    for i = 1, #data do
+        local domain = data[i]['value']
+        local alias_key = data[i]['key']
+        ngx.log(ngx.INFO, 'set alias: ' .. alias_key)
+        rules:set(alias_key, domain)
+        keys_valid[alias_key] = 1
     end
     
     -- remove keys not valid any more
@@ -44,6 +56,7 @@ function load_data()
         end
     end
 
+    -- upstreams
     local upstreams_key = string.format(config.UPSTREAMS_KEY, config.NAME)
     data = utils.load_data(etcd_client:get(upstreams_key))
     if not data then
