@@ -12,6 +12,7 @@ local function get_etcd()
 end
 
 _M.NAME = os.getenv("ELBNAME") or 'ELB'
+_M.CERT_PASSWORD = os.getenv('CERT_PASSWORD') or ''
 -- _M.ETCD = os.getenv("ETCD") or 'http://127.0.0.1:2379'
 _M.ETCD = get_etcd()
 _M.STATSD = os.getenv("STATSD")

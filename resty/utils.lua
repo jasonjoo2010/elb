@@ -76,7 +76,7 @@ function _M.from_hex(str)
 end
 
 function _M.decrypt_cert(cert_name, str)
-    local pw = '2astQ1cDg!Z$1">o9}:jelbSalt:' .. config.NAME .. ':' .. cert_name
+    local pw = config.CERT_PASSWORD .. 'elbSalt:' .. config.NAME .. ':' .. cert_name
     local aes_cryptor = aes:new(pw, nil, aes.cipher(128, "ecb"), aes.hash.sha1, 1)
     local data = _M.from_hex(str)
     return aes_cryptor:decrypt(data)
