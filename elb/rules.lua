@@ -47,6 +47,39 @@ function load_data()
         keys_valid[alias_key] = 1
     end
     
+    -- certs
+    data = utils.load_data(etcd_client:get(string.format(config.CERTS_KEY, config.NAME)))
+    if data ~= nil then
+        for i = 1, #data do
+            local info = data[i]['nodes']
+            for j = 1, #info do
+                if string.find(info[j]['key'], '/key$') or string.find(info[j]['key'], '/cert') then
+                    local cert_name = string.gsub(info[j]['key'], '.+/([^/]+)/[^/]+$', '%1')
+                    local pem = utils.decrypt_cert(cert_name, info[j]['value'])
+                    ngx.log(ngx.INFO, 'set cert: ' .. info[j]['key'])
+                    if pem == nil then
+                        ngx.log(ngx.ERR, 'pem read failed: ' .. info[j]['key'])
+                    else
+                        rules:set(info[j]['key'], pem)
+                        keys_valid[info[j]['key']] = 1
+                    end
+                end
+            end
+        end
+    end
+    
+    -- certs binding
+    data = utils.load_data(etcd_client:get(string.format(config.CERTS_BINDINGS_KEY, config.NAME)))
+    if data ~= nil then
+        for i = 1, #data do
+            local cert_name = data[i]['value']
+            local domain_key = data[i]['key']
+            ngx.log(ngx.INFO, 'set cert bind: ' .. domain_key)
+            rules:set(domain_key, cert_name)
+            keys_valid[domain_key] = 1
+        end
+    end
+    
     -- remove keys not valid any more
     local rule_keys = rules:get_keys(0)
     for _, k in ipairs(rule_keys) do
@@ -55,7 +88,7 @@ function load_data()
             rules:delete(k)
         end
     end
-
+    
     -- upstreams
     local upstreams_key = string.format(config.UPSTREAMS_KEY, config.NAME)
     data = utils.load_data(etcd_client:get(upstreams_key))

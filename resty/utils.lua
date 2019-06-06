@@ -1,6 +1,7 @@
 local _M = {}
 local cjson = require 'cjson'
 local dyups = require 'ngx.dyups'
+local aes = require "resty.aes"
 
 function _M.split(str, separator, max, regex)
     assert(separator ~= '')
@@ -66,6 +67,19 @@ function _M.read_data()
         ngx.exit(ngx.HTTP_BAD_REQUEST)
     end
     return data
+end
+
+function _M.from_hex(str)
+    return (str:gsub("(..)", function (cc)
+        return string.char(tonumber(cc, 16))
+    end))
+end
+
+function _M.decrypt_cert(cert_name, str)
+    local pw = '2astQ1cDg!Z$1">o9}:jelbSalt:' .. config.NAME .. ':' .. cert_name
+    local aes_cryptor = aes:new(pw, nil, aes.cipher(128, "ecb"), aes.hash.sha1, 1)
+    local data = _M.from_hex(str)
+    return aes_cryptor:decrypt(data)
 end
 
 function _M.say_msg_and_exit(status, message)

@@ -31,6 +31,17 @@ Default < ENV < Storage
 domain1
 ```
 
+##### /{ELBNAME}/certs/binding/{hostname}
+```
+{certname}
+```
+
+##### /{ELBNAME}/certs/store/{certname}/cert
+(aes_encrypt)
+
+##### /{ELBNAME}/certs/store/{certname}/key
+(aes_encrypt)
+
 ##### /{ELBNAME}/upstreams/{upstream}/{addr}
 ```
 weight=1 fail_timeout=10 max_fails=1
