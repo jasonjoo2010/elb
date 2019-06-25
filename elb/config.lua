@@ -29,4 +29,9 @@ _M.DOMAIN_KEY = '/%s/rules/%s'
 _M.UPSTREAMS_KEY  = '/%s/upstreams?recursive=true'
 _M.UPSTREAMS_KEY_R  = '/%s/upstreams'
 _M.UPSTREAM_DOMAIN = '/%s/upstreams/%s/%s'
+
+_M.WAF_KEY = string.format('/%s/waf?recursive=true', _M.NAME)
+
+_M.VERSION_KEY = 'version_key'
+
 return _M

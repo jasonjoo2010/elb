@@ -2,20 +2,20 @@ local string = require 'string'
 local cjson = require 'cjson'
 local request = require 'waf.request'
 
--- request.filter()
+request.filter()
 
-local config = require 'elb.config'
+local elb_config = require 'elb.config'
 local processor = require 'elb.processor'
 
 local rules = ngx.shared.rules
-local domain_key = string.format(config.DOMAIN_KEY, config.NAME, ngx.var.http_host)
+local domain_key = string.format(elb_config.DOMAIN_KEY, elb_config.NAME, ngx.var.http_host)
 local rule = rules:get(domain_key)
 if rule == nil then
     -- try alias
-    local alias_key = string.format(config.ALIAS_DOMAIN_KEY, config.NAME, ngx.var.http_host)
+    local alias_key = string.format(elb_config.ALIAS_DOMAIN_KEY, elb_config.NAME, ngx.var.http_host)
     local domain = rules:get(alias_key)
     if domain ~= nil then
-        domain_key = string.format(config.DOMAIN_KEY, config.NAME, domain)
+        domain_key = string.format(elb_config.DOMAIN_KEY, elb_config.NAME, domain)
         rule = rules:get(domain_key)
     end
     if rule == nil then

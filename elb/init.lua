@@ -5,4 +5,4 @@ config = require 'elb.config'
 utils = require 'resty.utils'
 statsd = require 'resty.statsd'
 
--- waf_init = require 'waf.init'
+waf_init = require 'waf.init'

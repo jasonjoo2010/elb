@@ -7,7 +7,6 @@ function _M.process(params)
         return false, nil
     end
     local ua = string.lower(ua)
-    ngx.log(ngx.ERR, ua .. ' ' .. pattern)
     local from, to, err = ngx.re.find(ua, pattern)
     if not from then
         return false, err

@@ -38,8 +38,15 @@ function _M.set_upstream(backend_name, servers_str)
 end
 
 function _M.real_key(key)
-    local subs = _M.split(key, '/')
-    return subs[#subs]
+    if key == nil or #key == 0 then
+        return nil
+    end
+    local t = string.reverse(key)
+    local pos = string.find(t, '/')
+    if pos == nil or pos < 1 then
+        return nil
+    end
+    return string.reverse(string.sub(t, 0, pos - 1))
 end
 
 function _M.servers_str(servers)
@@ -58,6 +65,36 @@ function _M.load_data(data)
         return nil
     end
     return data['node']['nodes']
+end
+
+local function load_recursive(nodes)
+    local t = {}
+    for i = 1, #nodes do
+        local name = _M.real_key(nodes[i]['key'])
+        if (nodes[i]['dir']) then
+            if nodes[i]['nodes'] ~= nil then
+                t[name] = load_recursive(nodes[i]['nodes'])
+            end
+        else
+            t[name] = nodes[i]['value']
+        end
+    end
+    return t
+end
+
+function _M.load_table_from_etcd(data)
+    if data == nil or data['node'] == nil or data['node']['nodes'] == nil then
+        return {}
+    end
+    return load_recursive(data['node']['nodes'])
+end
+
+function _M.load_array_from_string(data)
+    if data == nil or data == '' then
+        return nil
+    else
+        return cjson.decode(data)
+    end
 end
 
 function _M.read_data()
