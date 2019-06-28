@@ -52,10 +52,20 @@ weight=1 fail_timeout=10 max_fails=1
 true
 ```
 
+##### /{ELBNAME}/waf/ip_white_enable
+```
+true
+```
+
 ##### /{ELBNAME}/waf/ip_white
 ##### /{ELBNAME}/waf/domains/{domain}/ip_white
 ```json
 ["192.168.123.1", "192.168.40.1/24"]
+```
+
+##### /{ELBNAME}/waf/ip_black_enable
+```
+true
 ```
 
 ##### /{ELBNAME}/waf/ip_black

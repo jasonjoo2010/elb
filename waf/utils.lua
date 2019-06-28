@@ -15,13 +15,15 @@ _M.match_ip = function(ip, ipList, prefixList)
     if ip == nil or #ip < 1 then
         return false
     end
-    if ipList[ip] then
+    if ipList ~= nil and ipList[ip] then
         return true
     end
-    local iplong = ip2int(ip)
-    for prefix, mask in pairs(prefixList) do
-        if luabit.band(iplong, mask) == prefix then
-            return true
+    if prefixList ~= nil then
+        local iplong = ip2int(ip)
+        for prefix, mask in pairs(prefixList) do
+            if luabit.band(iplong, mask) == prefix then
+                return true
+            end
         end
     end
     return false

@@ -124,4 +124,14 @@ _M.getRules = function(http_host)
     return rules
 end
 
+-- convert hostname in http request into domain which binds rules
+-- nil for not found
+_M.aliasMapping = function(host)
+    local rules = data_rules[host]
+    if data_rules[host] ~= nil then
+        return host
+    end
+    return data_alias[host]
+end
+
 return _M

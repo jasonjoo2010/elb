@@ -7,6 +7,7 @@ local cjson = require 'cjson'
 local _M = {}
 local envConfig = {}
 local etcdConfig = nil
+local domainConfig = {}
 
 -- defaults from file(env) will not change
 -- configuration from etcd may change
@@ -94,6 +95,71 @@ li{ list-style-type:none;}
     etcdConfig.blackIpPrefix = nil
 end
 
+local function load_global_switches(config, src)
+    config.enable = utils.get_boolean(src['enable'], envConfig.enable)
+    
+    config.enableCc = utils.get_boolean(src['cc_enable'], envConfig.enableCc)
+    config.enableUa = utils.get_boolean(src['ua_enable'], envConfig.enableUa)
+    config.enableCookie = utils.get_boolean(src['cookie_enable'], envConfig.enableCookie)
+    config.enableArgs = utils.get_boolean(src['args_enable'], envConfig.enableArgs)
+    config.enableUrl = utils.get_boolean(src['url_enable'], envConfig.enableUrl)
+    config.enablePost = utils.get_boolean(src['post_enable'], envConfig.enablePost)
+    config.enableWhiteIp = utils.get_boolean(src['ip_white_enable'], false)
+    config.enableBlackIp = utils.get_boolean(src['ip_black_enable'], false)
+end
+
+local function load_general(config, src)
+    local arr = resty_utils.load_array_from_string(src['ip_white'])
+    if arr ~= nil and #arr > 0 then
+        config.whiteIp, config.whiteIpPrefix = utils.parse_ip_list(arr)
+        if next(config.whiteIp) == nil then
+            config.whiteIp = nil
+        end
+        if next(config.whiteIpPrefix) == nil then
+            config.whiteIpPrefix = nil
+        end
+    end
+    arr = resty_utils.load_array_from_string(src['ip_black'])
+    if arr ~= nil and #arr > 0 then
+        config.blackIp, config.blackIpPrefix = utils.parse_ip_list(arr)
+        if next(config.blackIp) == nil then
+            config.blackIp = nil
+        end
+        if next(config.blackIpPrefix) == nil then
+            config.blackIpPrefix = nil
+        end
+    end
+    arr = resty_utils.load_array_from_string(src['ua'])
+    if arr ~= nil and #arr > 0 then
+        config.patternUa = arr
+    end
+    arr = resty_utils.load_array_from_string(src['url'])
+    if arr ~= nil and #arr > 0 then
+        config.patternUrl = arr
+    end
+    arr = resty_utils.load_array_from_string(src['args'])
+    if arr ~= nil and #arr > 0 then
+        config.patternArgs = arr
+    end
+    arr = resty_utils.load_array_from_string(src['cookie'])
+    if arr ~= nil and #arr > 0 then
+        config.patternCookie = arr
+    end
+    arr = resty_utils.load_array_from_string(src['post'])
+    if arr ~= nil and #arr > 0 then
+        config.patternPost = arr
+    end
+    -- cc_rate
+    if src['cc_rate'] ~= nil and #src['cc_rate'] > 0 then
+        config.ccCount = tonumber(string.match(src['cc_rate'], '(.*)/'))
+        config.ccSeconds = tonumber(string.match(src['cc_rate'], '/(.*)'))
+        if config.ccCount < 1 or config.ccSeconds < 1 then
+            config.ccCount = nil
+            config.ccSeconds = nil
+        end
+    end
+end
+
 _M.reload = function()
     ngx.log(ngx.INFO, 'try load waf config from etcd')
     local c = elb_config.getWafRules()
@@ -101,56 +167,37 @@ _M.reload = function()
         return
     end
     -- ngx.log(ngx.INFO, 'load: ', cjson.encode(c))
-    etcdConfig.enable = utils.get_boolean(c['enable'], envConfig.enable)
+    local new_config = {}
+    local new_domain_config = {}
+    load_global_switches(new_config, c)
+    load_general(new_config, c)
     
-    etcdConfig.enableCc = utils.get_boolean(c['cc_enable'], envConfig.enableCc)
-    etcdConfig.enableUa = utils.get_boolean(c['ua_enable'], envConfig.enableUa)
-    etcdConfig.enableCookie = utils.get_boolean(c['cookie_enable'], envConfig.enableCookie)
-    etcdConfig.enableArgs = utils.get_boolean(c['args_enable'], envConfig.enableArgs)
-    etcdConfig.enableUrl = utils.get_boolean(c['url_enable'], envConfig.enableUrl)
-    etcdConfig.enablePost = utils.get_boolean(c['post_enable'], envConfig.enablePost)
+    -- append envConfig
+    new_config.patternUa = utils.list_append(new_config.patternUa, envConfig.patternUa);
+    new_config.patternUrl = utils.list_append(new_config.patternUrl, envConfig.patternUrl);
+    new_config.patternArgs = utils.list_append(new_config.patternArgs, envConfig.patternArgs);
+    new_config.patternCookie = utils.list_append(new_config.patternCookie, envConfig.patternCookie);
+    new_config.patternPost = utils.list_append(new_config.patternPost, envConfig.patternPost);
     
-    local arr = resty_utils.load_array_from_string(c['ip_white'])
-    if arr == nil or #arr == 0 then
-        etcdConfig.whiteIp = nil
-        etcdConfig.whiteIpPrefix = nil
-        etcdConfig.enableWhiteIp = false
-    else
-        etcdConfig.whiteIp = {}
-        etcdConfig.whiteIpPrefix = {}
-        etcdConfig.whiteIp, etcdConfig.whiteIpPrefix = utils.parse_ip_list(arr)
-        etcdConfig.enableWhiteIp = next(etcdConfig.whiteIp) ~= nil or next(etcdConfig.whiteIpPrefix) ~= nil
+    -- global cc_rate
+    if new_config.ccCount == nil or new_config.ccSeconds == nil then
+        new_config.ccCount = envConfig.ccCount
+        new_config.ccSeconds = envConfig.ccSeconds
     end
     
-    arr = resty_utils.load_array_from_string(c['ip_black'])
-    if arr == nil or #arr == 0 then
-        etcdConfig.blackIp = nil
-        etcdConfig.blackIpPrefix = nil
-        etcdConfig.enableBlackIp = false
-    else
-        etcdConfig.blackIp = {}
-        etcdConfig.blackIpPrefix = {}
-        etcdConfig.blackIp, etcdConfig.blackIpPrefix = utils.parse_ip_list(arr)
-        etcdConfig.enableBlackIp = next(etcdConfig.blackIp) ~= nil or next(etcdConfig.blackIpPrefix) ~= nil
-    end
-    
-    if c['cc_rate'] == nil or #c['cc_rate'] < 1 then
-        etcdConfig.ccCount = envConfig.ccCount
-        etcdConfig.ccSeconds = envConfig.ccSeconds
-    else
-        etcdConfig.ccCount = tonumber(string.match(c['cc_rate'], '(.*)/'))
-        etcdConfig.ccSeconds = tonumber(string.match(c['cc_rate'], '/(.*)'))
-        if etcdConfig.ccCount < 1 or etcdConfig.ccSeconds < 1 then
-            etcdConfig.ccCount = envConfig.ccCount
-            etcdConfig.ccSeconds = envConfig.ccSeconds
+    -- per domain
+    if c['domains'] ~= nil then
+        for domain, dc in pairs(c['domains']) do
+            local item = {}
+            load_general(item, dc)
+            if next(item) ~= nil then
+                new_domain_config[domain] = item
+            end
         end
     end
     
-    etcdConfig.patternUa = utils.list_append(resty_utils.load_array_from_string(c['ua']), envConfig.patternUa)
-    etcdConfig.patternUrl = utils.list_append(resty_utils.load_array_from_string(c['url']), envConfig.patternUrl)
-    etcdConfig.patternArgs = utils.list_append(resty_utils.load_array_from_string(c['args']), envConfig.patternArgs)
-    etcdConfig.patternCookie = utils.list_append(resty_utils.load_array_from_string(c['cookie']), envConfig.patternCookie)
-    etcdConfig.patternPost = utils.list_append(resty_utils.load_array_from_string(c['post']), envConfig.patternPost)
+    etcdConfig = new_config
+    domainConfig = new_domain_config
     
     ngx.log(ngx.INFO, 'successfully loaded config from etcd')
 end
@@ -195,49 +242,30 @@ _M.enablePost = function()
     return etcdConfig.enablePost
 end
 
+local config_name_list_type = {}
+config_name_list_type['whiteIp'] = 1
+config_name_list_type['whiteIpPrefix'] = 1
+config_name_list_type['blackIp'] = 1
+config_name_list_type['blackIpPrefix'] = 1
+config_name_list_type['ccCount'] = 1
+config_name_list_type['ccSeconds'] = 1
+config_name_list_type['patternUa'] = 1
+config_name_list_type['patternUrl'] = 1
+config_name_list_type['patternArgs'] = 1
+config_name_list_type['patternCookie'] = 1
+config_name_list_type['patternPost'] = 1
+
 -- values
-_M.getWhiteIp = function()
-    return etcdConfig.whiteIp
-end
-
-_M.getWhiteIpPrefix = function()
-    return etcdConfig.whiteIpPrefix
-end
-
-_M.getBlackIp = function()
-    return etcdConfig.blackIp
-end
-
-_M.getBlackIpPrefix = function()
-    return etcdConfig.blackIpPrefix
-end
-
-_M.getCCCount = function()
-    return etcdConfig.ccCount
-end
-
-_M.getCCSeconds = function()
-    return etcdConfig.ccSeconds
-end
-
-_M.getPatternUa = function()
-    return etcdConfig.patternUa
-end
-
-_M.getPatternUrl = function()
-    return etcdConfig.patternUrl
-end
-
-_M.getPatternArgs = function()
-    return etcdConfig.patternArgs
-end
-
-_M.getPatternCookie = function()
-    return etcdConfig.patternCookie
-end
-
-_M.getPatternPost = function()
-    return etcdConfig.patternPost
+_M.getConfigList = function(domain, config_name)
+    if config_name_list_type[config_name] == nil then
+        return nil, nil
+    end
+    local c = domainConfig[domain]
+    if c == nil then
+        return etcdConfig[config_name], nil
+    else
+        return etcdConfig[config_name], c[config_name]
+    end
 end
 
 _M.getBlackFileExts = function()

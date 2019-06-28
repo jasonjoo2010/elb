@@ -1,5 +1,6 @@
 local utils = require 'waf.utils'
 local config = require 'waf.config'
+local rules = require 'elb.rules'
 local ngxmatch = ngx.re.find
 local unescape = ngx.unescape_uri
 local get_headers = ngx.req.get_headers
@@ -13,16 +14,43 @@ local function get_client_ip()
     return IP
 end
 
-local function waf_white_ip(ip)
-    return utils.match_ip(ip, config.getWhiteIp(), config.getWhiteIpPrefix())
+local function waf_ip(ip, domain, list_name, prefix_list_name)
+    local ipList, ipListDomain = config.getConfigList(domain, list_name)
+    local ipListPrefix, ipListPrefixDomain = config.getConfigList(domain, prefix_list_name)
+    
+    if ipList == nil and ipListPrefix == nil then
+        return false
+    end
+    if utils.match_ip(ip, ipList, ipListPrefix) then
+        return true
+    end
+    
+    -- check domain
+    if ipListDomain == nil and ipListPrefixDomain == nil then
+        return false
+    end
+    if utils.match_ip(ip, ipListDomain, ipListPrefixDomain) then
+        return true
+    end
+    return false
 end
 
-local function waf_black_ip(ip)
-    return utils.match_ip(ip, config.getBlackIp(), config.getBlackIpPrefix())
+local function waf_white_ip(ip, domain)
+    return waf_ip(ip, domain, 'whiteIp', 'whiteIpPrefix')
 end
 
-local function waf_deny_cc(ip)
-    if config.getCCCount() < 1 or config.getCCSeconds() < 1 then
+local function waf_black_ip(ip, domain)
+    return waf_ip(ip, domain, 'blackIp', 'blackIpPrefix')
+end
+
+local function waf_deny_cc(ip, domain)
+    local ccCount, ccCountDomain = config.getConfigList(domain, 'ccCount');
+    local ccSeconds, ccSecondsDomain = config.getConfigList(domain, 'ccSeconds');
+    if ccCountDomain ~= nil and ccSecondsDomain ~= nil then
+        ccCount = ccCountDomain
+        ccSeconds = ccSecondsDomain
+    end
+    if ccCount < 1 or ccSeconds < 1 then
         return false
     end
     local uri = ngx.var.uri
@@ -30,28 +58,21 @@ local function waf_deny_cc(ip)
     local limit = ngx.shared.limit
     local req, _ = limit:get(token)
     if req then
-        if req >= config.getCCCount() then
+        if req >= ccCount then
             return true
         else
             limit:incr(token, 1)
         end
     else
-        limit:set(token, 1, config.getCCSeconds())
+        limit:set(token, 1, ccSeconds)
     end
     return false
 end
 
-local function waf_check_ua()
-    if config.getPatternUa() == nil then
-        return false
-    end
-    local ua = ngx.var.http_user_agent
-    if ua ~= nil and #ua > 0 then
-        for _, rule in pairs(config.getPatternUa()) do
-            if rule ~= "" and ngxmatch(ua, rule, "isjo") then
-                -- TODO logging
-                --waf_log('UA', ngx.var.request_uri, "-", rule) -- logging
-                --say_html()
+local function waf_match(str, list)
+    if list ~= nil then
+        for _, rule in pairs(list) do
+            if rule ~= nil and rule ~= "" and ngxmatch(str, rule, "isjo") then
                 return true
             end
         end
@@ -59,12 +80,35 @@ local function waf_check_ua()
     return false
 end
 
-local function waf_check_url()
-    if config.getPatternUrl() == nil then
-        return false
+local function waf_match_domain(str, list, listDomain)
+    if waf_match(str, list) then
+        return true
     end
-    for _, rule in pairs(config.getPatternUrl()) do
-        if rule ~= "" and ngxmatch(ngx.var.request_uri, rule, "isjo") then
+    if waf_match(str, listDomain) then
+        return true
+    end
+    return false
+end
+
+local function waf_check_ua(domain)
+    local ua = ngx.var.http_user_agent
+    if ua ~= nil and #ua > 0 then
+        local patternUa, patternUaDomain = config.getConfigList(domain, 'patternUa')
+        if waf_match_domain(ua, patternUa, patternUaDomain) then
+            -- TODO logging
+            --waf_log('UA', ngx.var.request_uri, "-", rule) -- logging
+            --say_html()
+            return true
+        end
+    end
+    return false
+end
+
+local function waf_check_url(domain)
+    local url = ngx.var.request_uri
+    if url ~= nil and #url > 1 then
+        local patternUrl, patternUrlDomain = config.getConfigList(domain, 'patternUrl')
+        if waf_match_domain(url, patternUrl, patternUrlDomain) then
             -- TODO logging
             -- waf_log('GET', ngx.var.request_uri, "-", rule)
             -- say_html()
@@ -74,12 +118,10 @@ local function waf_check_url()
     return false
 end
 
-local function waf_check_args()
-    if config.getPatternArgs() == nil then
-        return false
-    end
+local function waf_check_args(domain)
     local args = ngx.req.get_uri_args()
-    for _, rule in pairs(config.getPatternArgs()) do
+    if args ~= nil then
+        local patternArgs, patternArgsDomain = config.getConfigList(domain, 'patternArgs')
         for _, val in pairs(args) do
             local data = val
             -- for list type
@@ -88,7 +130,7 @@ local function waf_check_args()
                     data = table.concat(val, " ")
                 end
             end
-            if data and type(data) ~= "boolean" and rule ~= "" and ngxmatch(unescape(data), rule, "isjo") then
+            if data and type(data) ~= "boolean" and waf_match_domain(data, patternArgs, patternArgsDomain) then
                 -- TODO logging
                 -- waf_log('GET', ngx.var.request_uri, "-", rule)
                 -- say_html()
@@ -99,19 +141,15 @@ local function waf_check_args()
     return false
 end
 
-local function waf_check_cookie()
-    if config.getPatternCookie() == nil then
-        return false
-    end
-    local ck = ngx.var.http_cookie
-    if ck then
-        for _, rule in pairs(config.getPatternCookie()) do
-            if rule ~= "" and ngxmatch(ck, rule, "isjo") then
-                -- TODO logging
-                -- waf_log('Cookie', ngx.var.request_uri, "-", rule)
-                -- say_html()
-                return true
-            end
+local function waf_check_cookie(domain)
+    local cookie = ngx.var.http_cookie
+    if cookie ~= nil and #cookie > 1 then
+        local pattern, patternDomain = config.getConfigList(domain, 'patternCookie')
+        if waf_match_domain(cookie, pattern, patternDomain) then
+            -- TODO logging
+            -- waf_log('Cookie', ngx.var.request_uri, "-", rule)
+            -- say_html()
+            return true
         end
     end
     return false
@@ -158,20 +196,19 @@ local function check_file_ext(ext)
     return false
 end
 
-local function check_body(data)
-    for _, rule in pairs(config.getPatternPost()) do
-        if rule ~= nil and data ~= nil and #rule > 0 and #data > 0 and ngxmatch(unescape(data), rule, "isjo") then
-            -- TODO logging
-            -- waf_log('POST', ngx.var.request_uri, data, rule)
-            -- say_html()
-            return true
-        end
+local function check_body(data, pattern, patternDomain)
+    if data ~= nil and #data > 1 and waf_match_domain(data, pattern, patternDomain) then
+        -- TODO logging
+        -- waf_log('POST', ngx.var.request_uri, data, rule)
+        -- say_html()
+        return true
     end
     return false
 end
 
-local function waf_check_post()
-    if config.getPatternPost() == nil then
+local function waf_check_post(domain)
+    local pattern, patternDomain = config.getConfigList(domain, 'patternPost')
+    if pattern == nil and patternDomain == nil then
         return false
     end
     local method = ngx.req.get_method()
@@ -200,7 +237,7 @@ local function waf_check_post()
                 return
             end
             ngx.req.append_body(data)
-            if check_body(data) then
+            if check_body(data, pattern, patternDomain) then
                 return true
             end
             size = size + len(data)
@@ -215,7 +252,7 @@ local function waf_check_post()
                     filetranslate = false
                 end
                 if filetranslate == false then
-                    if check_body(data) then
+                    if check_body(data, pattern, patternDomain) then
                         return true
                     end
                 end
@@ -241,7 +278,7 @@ local function waf_check_post()
                 end
                 data = table.concat(val, ", ")
             end
-            if data and type(data) ~= "boolean" and check_body(data) then
+            if data and type(data) ~= "boolean" and check_body(data, pattern, patternDomain) then
                 return true
             end
         end
@@ -250,28 +287,29 @@ end
 
 local function _filter()
     local client_ip = get_client_ip()
-    if config.enableWhiteIp() and waf_white_ip(client_ip) then
+    local domain = rules.aliasMapping(ngx.var.http_host)
+    if config.enableWhiteIp() and waf_white_ip(client_ip, domain) then
         -- white ip, pass
-    elseif config.enableBlackIp() and waf_black_ip(client_ip) then
+    elseif config.enableBlackIp() and waf_black_ip(client_ip, domain) then
         ngx.exit(403)
-    elseif config.enableCc() and waf_deny_cc(client_ip) then -- need to be per domain ?
+    elseif config.enableCc() and waf_deny_cc(client_ip, domain) then -- need to be per domain ?
         ngx.exit(503)
     elseif ngx.var.http_Acunetix_Aspect ~= nil or ngx.var.http_X_Scan_Memo ~= nil then
         ngx.exit(409)
 --    elseif waf_white_url() then -- need to be per domain ?
-    elseif config.enableUa() and waf_check_ua() then
+    elseif config.enableUa() and waf_check_ua(domain) then
         -- TODO logging & json/html output
         ngx.exit(403)
-    elseif config.enableUrl() and waf_check_url() then
+    elseif config.enableUrl() and waf_check_url(domain) then
         -- TODO logging & json/html output
         ngx.exit(403)
-    elseif config.enableArgs() and waf_check_args() then
+    elseif config.enableArgs() and waf_check_args(domain) then
         -- TODO logging & json/html output
         ngx.exit(403)
-    elseif config.enableCookie() and waf_check_cookie() then
+    elseif config.enableCookie() and waf_check_cookie(domain) then
         -- TODO logging & json/html output
         ngx.exit(403)
-    elseif config.enablePost() and waf_check_post() then
+    elseif config.enablePost() and waf_check_post(domain) then
         -- TODO logging & json/html output
         ngx.exit(403)
     else
@@ -279,7 +317,7 @@ local function _filter()
     end
 end
 
-_M.filter = function()
+_M.filter = function(domain)
     if not config.enable() then
         return
     end
