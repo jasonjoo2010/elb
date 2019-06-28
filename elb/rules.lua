@@ -1,115 +1,127 @@
-local string = require 'string'
-local etcd = require 'resty.etcd'
 local lock = require 'resty.lock'
-local utils = require 'resty.utils'
 local config = require 'elb.config'
+local dyups = require 'ngx.dyups'
+local dict_locks = ngx.shared.locks
 
-local etcd_client = etcd:new(config.ETCD)
-local rules = ngx.shared.rules
+local data_rules = {}
+local data_alias = {}
+local data_certs_binding = {}
+local data_certs = {}
 
-function load_data()
-    ngx.log(ngx.INFO, 'try load config')
+local _M = {}
+
+_M.loadUpstreams = function(version)
+    local upstreams = config.getUpstreams()
+    -- we just need it to be operated once
     local mutex = lock:new('locks', {timeout = 0})
-    local es, err = mutex:lock('load_data')
+    local es, err = mutex:lock('sync_upstreams')
     if not es then
-        ngx.log(ngx.NOTICE, 'load data in another worker')
         return
     elseif err then
         ngx.log(ngx.ERR, err)
         return
     end
-
-    -- rules
-    local rules_key = string.format(config.RULES_KEY, config.NAME)
-    local data = utils.load_data(etcd_client:get(rules_key))
-    local keys_valid = {}
-    if not data then
-        ngx.log(ngx.ERR, 'no domain data')
+    local cur_version = dict_locks:get(config.VERSION_UPSTREAME_KEY)
+    if cur_version == version then
         mutex:unlock()
+        ngx.log(ngx.INFO, 'Already loaded, skip')
         return
     end
-    for i = 1, #data do
-        local rules_json = data[i]['value']
-        local domain_key = data[i]['key']
-        ngx.log(ngx.INFO, 'set domain ' .. domain_key)
-        rules:set(domain_key, rules_json)
-        keys_valid[domain_key] = 1
-    end
-    
-    -- alias
-    local alias_root = string.format(config.ALIAS_KEY, config.NAME)
-    data = utils.load_data(etcd_client:get(alias_root))
-    for i = 1, #data do
-        local domain = data[i]['value']
-        local alias_key = data[i]['key']
-        ngx.log(ngx.INFO, 'set alias: ' .. alias_key)
-        rules:set(alias_key, domain)
-        keys_valid[alias_key] = 1
-    end
-    
-    -- certs
-    data = utils.load_data(etcd_client:get(string.format(config.CERTS_KEY, config.NAME)))
-    if data ~= nil then
-        for i = 1, #data do
-            local info = data[i]['nodes']
-            for j = 1, #info do
-                if string.find(info[j]['key'], '/key$') or string.find(info[j]['key'], '/cert') then
-                    local cert_name = string.gsub(info[j]['key'], '.+/([^/]+)/[^/]+$', '%1')
-                    local pem = utils.decrypt_cert(cert_name, info[j]['value'])
-                    ngx.log(ngx.INFO, 'set cert: ' .. info[j]['key'])
-                    if pem == nil then
-                        ngx.log(ngx.ERR, 'pem read failed: ' .. info[j]['key'])
-                    else
-                        rules:set(info[j]['key'], pem)
-                        keys_valid[info[j]['key']] = 1
-                    end
+    dict_locks:set(config.VERSION_UPSTREAME_KEY, version)
+    if upstreams == nil then
+        ngx.log(ngx.WARN, "No upstream loaded")
+    else
+        for up_name, servers in pairs(upstreams) do
+            local servers_str = ''
+            for addr, settings in pairs(servers) do
+                local line = string.format("server %s %s;", addr, settings)
+                if #servers_str > 0 then
+                    servers_str = servers_str .. '\n' .. line
+                else
+                    servers_str = line
                 end
+            end
+            local status, err = dyups.update(up_name, servers_str)
+            if status ~= ngx.HTTP_OK then
+                ngx.log(ngx.ERR, 'Set upstream ', up_name, ' error')
+            else
+                ngx.log(ngx.INFO, 'Upstream ', up_name, ' loaded: ', servers_str)
             end
         end
     end
-    
-    -- certs binding
-    data = utils.load_data(etcd_client:get(string.format(config.CERTS_BINDINGS_KEY, config.NAME)))
-    if data ~= nil then
-        for i = 1, #data do
-            local cert_name = data[i]['value']
-            local domain_key = data[i]['key']
-            ngx.log(ngx.INFO, 'set cert bind: ' .. domain_key)
-            rules:set(domain_key, cert_name)
-            keys_valid[domain_key] = 1
-        end
-    end
-    
-    -- remove keys not valid any more
-    local rule_keys = rules:get_keys(0)
-    for _, k in ipairs(rule_keys) do
-        if keys_valid[k] == nil then
-            ngx.log(ngx.INFO, 'remove ' .. k)
-            rules:delete(k)
-        end
-    end
-    
-    -- upstreams
-    local upstreams_key = string.format(config.UPSTREAMS_KEY, config.NAME)
-    data = utils.load_data(etcd_client:get(upstreams_key))
-    if not data then
-        ngx.log(ngx.ERR, 'no upstreams data')
-        mutex:unlock()
-        return
-    end
-    for i = 1, #data do
-        local servers = data[i]['nodes']
-        local backend_name = utils.real_key(data[i]['key'])
-        local servers_str = utils.servers_str(servers)
-        if not utils.set_upstream(backend_name, servers_str) then
-            ngx.log(ngx.ERR, 'load upstream failed ', err)
-        end
-    end
-
     mutex:unlock()
-    ngx.log(ngx.INFO, 'load config')
 end
 
-return {
-    load = load_data
-}
+_M.loadExceptUpstreams = function()
+    ngx.log(ngx.INFO, "start to load configuration from etcd")
+    local binds, certs = config.getCerts()
+    local alias = config.getAlias()
+    local rules = config.getRules()
+    
+    if rules == nil then
+        ngx.log(ngx.WARN, "No rules loaded")
+        data_rules = {}
+    else
+        data_rules = rules
+    end
+    
+    if alias == nil then
+        ngx.log(ngx.WARN, "No alias loaded")
+        data_alias = {}
+    else
+        data_alias = alias
+    end
+    
+    if binds == nil then
+        ngx.log(ngx.WARN, "No certificate binding loaded")
+        data_certs_binding = {}
+    else
+        data_certs_binding = binds
+    end
+    
+    if certs == nil then
+        ngx.log(ngx.WARN, "No certificate loaded")
+        data_certs = {}
+    else
+        data_certs = certs
+    end
+    
+    ngx.log(ngx.INFO, "Configuration are loaded")
+end
+
+_M.getCertificate = function(server_name)
+    local cert_name = data_certs_binding[server_name]
+    if cert_name == nil then
+        -- try widecard
+        local widecard = nil
+        local offset = string.find(server_name, '%.', 1)
+        if offset and offset > 0 then
+            widecard = '*' .. server_name.sub(server_name, offset)
+        end
+        if widecard ~= nil then
+            cert_name = data_certs_binding[widecard]
+        end
+    end
+    if cert_name == nil then
+        return nil, nil
+    end
+    local data = data_certs[cert_name]
+    if data == nil then
+        return nil, nil
+    end
+    return data['key'], data['cert']
+end
+
+_M.getRules = function(http_host)
+    local rules = data_rules[http_host]
+    if rules == nil then
+        -- try alias
+        local alias = data_alias[http_host]
+        if alias ~= nil then
+            rules = data_rules[alias]
+        end
+    end
+    return rules
+end
+
+return _M

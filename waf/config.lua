@@ -1,15 +1,12 @@
 -- load defaults from local files
 local utils = require 'waf.utils'
 local elb_config = require 'elb.config'
-local etcd = require 'resty.etcd'
 local resty_utils = require 'resty.utils'
 local cjson = require 'cjson'
 
 local _M = {}
 local envConfig = {}
 local etcdConfig = nil
-
-local etcd_client = etcd:new(elb_config.ETCD)
 
 -- defaults from file(env) will not change
 -- configuration from etcd may change
@@ -99,7 +96,7 @@ end
 
 _M.reload = function()
     ngx.log(ngx.INFO, 'try load waf config from etcd')
-    local c = resty_utils.load_table_from_etcd(etcd_client:get(elb_config.WAF_KEY))
+    local c = elb_config.getWafRules()
     if c == nil or next(c) == nil then
         return
     end
@@ -156,7 +153,6 @@ _M.reload = function()
     etcdConfig.patternPost = utils.list_append(resty_utils.load_array_from_string(c['post']), envConfig.patternPost)
     
     ngx.log(ngx.INFO, 'successfully loaded config from etcd')
-    ngx.log(ngx.INFO, 'new configuration: ', cjson.encode(etcdConfig))
 end
 
 load_from_env()

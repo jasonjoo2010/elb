@@ -161,7 +161,6 @@ end
 local function check_body(data)
     for _, rule in pairs(config.getPatternPost()) do
         if rule ~= nil and data ~= nil and #rule > 0 and #data > 0 and ngxmatch(unescape(data), rule, "isjo") then
-        print(rule)
             -- TODO logging
             -- waf_log('POST', ngx.var.request_uri, data, rule)
             -- say_html()

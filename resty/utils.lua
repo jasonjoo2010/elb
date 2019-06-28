@@ -1,7 +1,35 @@
 local _M = {}
 local cjson = require 'cjson'
 local dyups = require 'ngx.dyups'
-local aes = require "resty.aes"
+
+-- deprecated
+function _M.set_upstream(backend_name, servers_str)
+    local status, err = dyups.update(backend_name, servers_str)
+    if status ~= ngx.HTTP_OK then
+        return false
+    end
+    return true
+end
+
+-- deprecated
+function _M.servers_str(servers)
+    local server_pattern = "server %s %s;"
+    local data = {}
+    for i = 1, #servers do
+        local backend = _M.real_key(servers[i]['key'])
+        local addition = servers[i]['value']
+        table.insert(data, string.format(server_pattern, backend, addition))
+    end
+    return table.concat(data, '\n')
+end
+
+-- deprecated
+function _M.load_data(data)
+    if not data or not data['node'] or not data['node']['nodes'] then
+        return nil
+    end
+    return data['node']['nodes']
+end
 
 function _M.split(str, separator, max, regex)
     assert(separator ~= '')
@@ -29,14 +57,6 @@ function _M.split(str, separator, max, regex)
     return record
 end
 
-function _M.set_upstream(backend_name, servers_str)
-    local status, err = dyups.update(backend_name, servers_str)
-    if status ~= ngx.HTTP_OK then
-        return false
-    end
-    return true
-end
-
 function _M.real_key(key)
     if key == nil or #key == 0 then
         return nil
@@ -47,24 +67,6 @@ function _M.real_key(key)
         return nil
     end
     return string.reverse(string.sub(t, 0, pos - 1))
-end
-
-function _M.servers_str(servers)
-    local server_pattern = "server %s %s;"
-    local data = {}
-    for i = 1, #servers do
-        local backend = _M.real_key(servers[i]['key'])
-        local addition = servers[i]['value']
-        table.insert(data, string.format(server_pattern, backend, addition))
-    end
-    return table.concat(data, '\n')
-end
-
-function _M.load_data(data)
-    if not data or not data['node'] or not data['node']['nodes'] then
-        return nil
-    end
-    return data['node']['nodes']
 end
 
 local function load_recursive(nodes)
@@ -110,13 +112,6 @@ function _M.from_hex(str)
     return (str:gsub("(..)", function (cc)
         return string.char(tonumber(cc, 16))
     end))
-end
-
-function _M.decrypt_cert(cert_name, str)
-    local pw = config.CERT_PASSWORD .. 'elbSalt:' .. config.NAME .. ':' .. cert_name
-    local aes_cryptor = aes:new(pw, nil, aes.cipher(128, "ecb"), aes.hash.sha1, 1)
-    local data = _M.from_hex(str)
-    return aes_cryptor:decrypt(data)
 end
 
 function _M.say_msg_and_exit(status, message)
