@@ -22,13 +22,13 @@ _M.loadUpstreams = function(version)
         ngx.log(ngx.ERR, err)
         return
     end
-    local cur_version = dict_locks:get(config.VERSION_UPSTREAME_KEY)
+    local cur_version = dict_locks:get(config.VERSION_UPSTREAMS_KEY)
     if cur_version == version then
         mutex:unlock()
         ngx.log(ngx.NOTICE, 'Already loaded, skip')
         return
     end
-    dict_locks:set(config.VERSION_UPSTREAME_KEY, version)
+    dict_locks:set(config.VERSION_UPSTREAMS_KEY, version)
     if upstreams == nil then
         ngx.log(ngx.WARN, "No upstream loaded")
     else

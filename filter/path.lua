@@ -9,7 +9,7 @@ function _M.process(params)
     if not regex then
         ret = _M.no_regex(path, pattern)
     else
-        ret, sub_path = _M.regex(path, pattern)
+        ret, sub_path = _M.regex(path, pattern, params['rewriteTo'])
     end
     if not ret then
         return false, nil
@@ -25,17 +25,22 @@ function _M.no_regex(path, pattern)
     return string.sub(path, 1, string.len(pattern)) == pattern
 end
 
-function _M.regex(path, pattern)
+function _M.regex(path, pattern, rewriteTo)
     -- regex check
-    ngx.log(ngx.ERR, path..' '..pattern)
     local captured, err = ngx.re.match(path, pattern)
     if err then
         return false, nil
     end
-    if captured ~= nil and captured[1] then
-        return true, captured[1]
+    if captured ~= nil then
+        if rewriteTo ~= nil and #rewriteTo > 0 then
+            return true, ngx.re.sub(path, pattern, rewriteTo)
+        elseif captured[1] ~= nil then
+            return true, captured[1]
+        else
+            return true, path
+        end
     end
-    return true, '/'
+    return false, nil
 end
 
 return _M

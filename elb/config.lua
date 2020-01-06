@@ -16,7 +16,7 @@ local function get_etcd()
 end
 
 _M.VERSION_KEY = 'version_key'
-_M.VERSION_UPSTREAME_KEY = 'upstreams_version'
+_M.VERSION_UPSTREAMS_KEY = 'upstreams_version'
 
 local client = etcd:new(get_etcd())
 local elb_name = os.getenv("ELBNAME") or 'ELB'
