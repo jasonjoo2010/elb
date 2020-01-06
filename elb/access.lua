@@ -6,11 +6,11 @@ request.filter()
 
 local elb_config = require 'elb.config'
 local processor = require 'elb.processor'
-local rules = require 'elb.rules'
+local elbRules = require 'elb.rules'
 
 -- get rules
 -- ATTENSION: variables must be *READONLY* or we must copy them first
-local rules = rules.getRules(ngx.var.http_host)
+local rules = elbRules.getRules(ngx.var.http_host)
 if rules == nil then
     ngx.exit(ngx.HTTP_NOT_FOUND)
 end

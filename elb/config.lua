@@ -56,6 +56,18 @@ _M.getAlias = function()
     return data
 end
 
+_M.getDomainConfig = function()
+    local data = utils.load_table_from_etcd(client:get(string.format('/%s/config?recursive=true', elb_name)))
+    local configs = {}
+    if data == nil then
+        return configs
+    end
+    for domain, val in pairs(data) do
+        configs[domain] = cjson.decode(val)
+    end
+    return configs
+end
+
 _M.getCerts = function()
     local data = utils.load_table_from_etcd(client:get(string.format('/%s/certs?recursive=true', elb_name)))
     if data == nil then
@@ -63,6 +75,9 @@ _M.getCerts = function()
     end
     local binds = data['binding']
     local certs = data['store']
+    if certs == nil then
+        return nil, nil
+    end
     -- decrypt certs
     for name, cert in pairs(certs) do
         local key = decrypt_cert(name, cert['key'])

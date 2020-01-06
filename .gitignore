@@ -12,3 +12,4 @@ api/develop.lua
 build/*
 build.yaml
 dist/*
+/.history/

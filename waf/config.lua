@@ -23,7 +23,7 @@ local function read_from_file(var)
         table.insert(t, line)
     end
     file:close()
-    ngx.log(ngx.INFO, var .. " rules " .. #t .. " loaded")
+    ngx.log(ngx.NOTICE, var .. " rules " .. #t .. " loaded")
     if #t > 0 then
         return t
     else
@@ -161,12 +161,12 @@ local function load_general(config, src)
 end
 
 _M.reload = function()
-    ngx.log(ngx.INFO, 'try load waf config from etcd')
+    ngx.log(ngx.NOTICE, 'try load waf config from etcd')
     local c = elb_config.getWafRules()
     if c == nil or next(c) == nil then
         return
     end
-    -- ngx.log(ngx.INFO, 'load: ', cjson.encode(c))
+    -- ngx.log(ngx.NOTICE, 'load: ', cjson.encode(c))
     local new_config = {}
     local new_domain_config = {}
     load_global_switches(new_config, c)
@@ -199,11 +199,11 @@ _M.reload = function()
     etcdConfig = new_config
     domainConfig = new_domain_config
     
-    ngx.log(ngx.INFO, 'successfully loaded config from etcd')
+    ngx.log(ngx.NOTICE, 'successfully loaded config from etcd')
 end
 
 load_from_env()
-ngx.log(ngx.INFO, "load base configuration of WAF")
+ngx.log(ngx.NOTICE, "load base configuration of WAF")
 
 -- switches
 _M.enable = function()

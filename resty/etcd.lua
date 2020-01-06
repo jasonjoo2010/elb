@@ -16,9 +16,9 @@ function _M:_keyURL(key)
     return self.base_url .. keyPrefix .. key
 end
 
-function _M:_handleRequest(res)
+function _M:_handleRequest(url, res)
     if res.status ~= ngx.HTTP_OK and res.status ~= ngx.HTTP_CREATED then
-        ngx.log(ngx.ERR, res.body)
+        ngx.log(ngx.ERR, url, ": ", res.body)
         return nil
     end
     return cjson.decode(res.body)
@@ -32,7 +32,7 @@ function _M:get(key)
         ngx.log(ngx.ERR, err)
         return nil
     end
-    return self:_handleRequest(res)
+    return self:_handleRequest(url, res)
 end
 
 function _M:set(key, value)
@@ -49,7 +49,7 @@ function _M:set(key, value)
         ngx.log(ngx.ERR, err)
         return nil
     end
-    return self:_handleRequest(res)
+    return self:_handleRequest(url, res)
 end
 
 function _M:delete(key)
@@ -60,7 +60,7 @@ function _M:delete(key)
         ngx.log(ngx.ERR, err)
         return nil
     end
-    return self:_handleRequest(res)
+    return self:_handleRequest(url, res)
 end
 
 function _M:recursively_delete(key)
@@ -71,7 +71,7 @@ function _M:recursively_delete(key)
         ngx.log(ngx.ERR, err)
         return nil
     end
-    return self:_handleRequest(res)
+    return self:_handleRequest(url, res)
 end
 
 return _M

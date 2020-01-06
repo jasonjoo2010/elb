@@ -18,7 +18,7 @@ local function reload_thread()
         rules_loader.loadUpstreams(cur_version)
         waf_config.reload()
     end
-    ngx.timer.at(5, reload_thread)
 end
 
 ngx.timer.at(0, reload_thread)
+ngx.timer.every(5, reload_thread)

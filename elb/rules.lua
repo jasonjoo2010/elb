@@ -5,6 +5,7 @@ local dict_locks = ngx.shared.locks
 
 local data_rules = {}
 local data_alias = {}
+local data_domain_config = {}
 local data_certs_binding = {}
 local data_certs = {}
 
@@ -24,7 +25,7 @@ _M.loadUpstreams = function(version)
     local cur_version = dict_locks:get(config.VERSION_UPSTREAME_KEY)
     if cur_version == version then
         mutex:unlock()
-        ngx.log(ngx.INFO, 'Already loaded, skip')
+        ngx.log(ngx.NOTICE, 'Already loaded, skip')
         return
     end
     dict_locks:set(config.VERSION_UPSTREAME_KEY, version)
@@ -45,7 +46,7 @@ _M.loadUpstreams = function(version)
             if status ~= ngx.HTTP_OK then
                 ngx.log(ngx.ERR, 'Set upstream ', up_name, ' error')
             else
-                ngx.log(ngx.INFO, 'Upstream ', up_name, ' loaded: ', servers_str)
+                ngx.log(ngx.NOTICE, 'Upstream ', up_name, ' loaded: ', servers_str)
             end
         end
     end
@@ -53,9 +54,10 @@ _M.loadUpstreams = function(version)
 end
 
 _M.loadExceptUpstreams = function()
-    ngx.log(ngx.INFO, "start to load configuration from etcd")
+    ngx.log(ngx.NOTICE, "start to load configuration from etcd")
     local binds, certs = config.getCerts()
     local alias = config.getAlias()
+    local domainConfig = config.getDomainConfig()
     local rules = config.getRules()
     
     if rules == nil then
@@ -70,6 +72,12 @@ _M.loadExceptUpstreams = function()
         data_alias = {}
     else
         data_alias = alias
+    end
+
+    if domainConfig == nil then
+        ngx.log(ngx.WARN, "No domain config loaded")
+    else
+        data_domain_config = domainConfig
     end
     
     if binds == nil then
@@ -86,7 +94,7 @@ _M.loadExceptUpstreams = function()
         data_certs = certs
     end
     
-    ngx.log(ngx.INFO, "Configuration are loaded")
+    ngx.log(ngx.NOTICE, "Configuration are loaded")
 end
 
 _M.getCertificate = function(server_name)
@@ -112,13 +120,31 @@ _M.getCertificate = function(server_name)
     return data['key'], data['cert']
 end
 
+_M.getDomainConfig = function(domain)
+    return data_domain_config[domain]
+end
+
 _M.getRules = function(http_host)
+    local host_name = http_host
     local rules = data_rules[http_host]
     if rules == nil then
         -- try alias
         local alias = data_alias[http_host]
         if alias ~= nil then
+            http_host = alias
             rules = data_rules[alias]
+        end
+    end
+    if rules ~= nil and data_domain_config[host_name] ~= nil then
+        local conf = data_domain_config[host_name]
+        if ngx.var.server_port == '443' and conf['ssl'] == false then
+            -- no ssl
+            ngx.log(ngx.WARN, "no ssl")
+            return nil
+        end
+        if ngx.var.server_port ~= '443' and conf['plain'] == false then
+            -- no plain
+            return nil
         end
     end
     return rules
